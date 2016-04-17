@@ -1,19 +1,21 @@
+#!/home/ionut/workspace/WikiDays/.env/bin/python3
 """Populate DataBase with Wikipedia - Days of the year."""
 from pymongo import MongoClient
 import sys
+# import wikipedia
 import mwclient
 import re
+from datetime import datetime, timezone
+# from bson.objectid import ObjectId
 
 
 def get_years_titles(raw):
-    """Parse a raw response from api and return a list of dicts.
-
-    witch contains years and coresponding titles of Events, Births, Deaths
-    """
+    """Return a dict witch contains years and coresponding events or births."""
     # regex witch matches one or more decimal digits
     r_digits = re.compile('\d+')
     # match words between square brackets i.e. [[Roman emperor]]
-    r_word = re.compile('(\[\[[^\[\]]+\]\])')
+    # r_sbrackets = re.compile('(\[\[[\w ]+\]\])')
+    r_word = re.compile('[^(\[\[)$(\]\])]+')
     results = []
     for ye_row in raw.split('\n')[1:]:
         if len(ye_row.split('&ndash;')) == 2:
@@ -30,10 +32,7 @@ def get_years_titles(raw):
 
 
 def get_holi_obs(raw):
-    """Parse a raw response from api and return a list of dicts.
-
-    witch contains coresponding titles Holidaysandobservances
-    """
+    """Return a list with holidays and observances."""
     r_word = re.compile('[^(\[\[)$(\]\])]+')
     results = []
     for o_row in raw.split('\n')[1:]:
@@ -58,8 +57,7 @@ def populate():
     Births = 2
     Deaths = 3
     Holidaysandobservances = 4
-    # drop if collection already exist
-    db.days.drop()
+
     for page in category:
         day = page.name.replace(' ', '_')
         events = get_years_titles(page.text(section=Events))
@@ -67,45 +65,37 @@ def populate():
         deaths = get_years_titles(page.text(section=Deaths))
         holi_obs = get_holi_obs(page.text(section=Holidaysandobservances))
 
-        r = db.days.insert_one(
-            {
-                'Day': day,
-                'Events': events,
-                'Births': births,
-                'Deaths': deaths,
-                'Holidaysandobservances': holi_obs
-            })
-        print("Day: {0:<12} == complete == document id: {1}".format(page.name, r.inserted_id,))
-
-
-def create_index_titles():
-    """Create a text_index for titles."""
-    client = MongoClient()
-    db = client.wikidays
-    categories = ['Events', 'Births', 'Deaths', 'Holidaysandobservances']
-    db.days.create_index(
-                            [
-                                (categories[0]+'.title', 'text'),
-                                (categories[1]+'.title', 'text'),
-                                (categories[2]+'.title', 'text'),
-                                (categories[3]+'.title', 'text'),
-                            ]
-                        )
+        r = db.days.update_one(
+                {'Day': day},
+                {
+                    '$set':
+                    {
+                        'Events': events,
+                        'Births': births,
+                        'Deaths': deaths,
+                        'Holidaysandobservances': holi_obs,
+                    }
+                }
+            )
+        status = 'not updated'
+        if r.modified_count > 0:
+            status = 'updated'
+        elif r.matched_count > 0:
+            status = 'just matched nothing to update'
+        print("Day: {0:<12} == {1}".format(page.name, status))
 
 
 def main(argv):
     """Main function of script."""
     try:
-        # popolate db with wiki-records
+        t = datetime.now(timezone.utc).astimezone().isoformat()
+        print("-- Update CronJob Started @ {0} --".format(t))
         populate()
-        # create a index-text for collection
-        create_index_titles()
     except mwclient.MwClientError as e:
         print('Unexpected mwclient error occurred: ' + e.__class__.__name__)
         print(e.args)
     except Exception as e:
         print(e)
-
 
 if __name__ == "__main__":
     main(sys.argv)

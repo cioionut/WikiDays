@@ -11,10 +11,13 @@ import optparse
 app = Flask(__name__)
 
 
-def build_results(dict_list, year, day, category):
+def build_results(dict_list, day, category):
     """Build specified list of results."""
     results = []
     for item in dict_list:
+        year = None
+        if 'year' in item:
+            year = item['year']
         result = {
                     'title': item['title'],
                     'year': year,
@@ -25,11 +28,12 @@ def build_results(dict_list, year, day, category):
     return results
 
 
-def get_data(year, day, category):
+def get_data(year, day, category, keyword):
     """Return data from database."""
     # print(year, day, category)
     client = MongoClient()
     db = client.wikidays
+
     categories = ['Events', 'Births', 'Deaths', 'Holidaysandobservances']
     results = []
     if year is not None and day is not None and category is not None:
@@ -42,7 +46,6 @@ def get_data(year, day, category):
             dict_list = [x for x in document[category] if x['year'] == year]
             results += build_results(
                                         dict_list,
-                                        year,
                                         document['Day'],
                                         category)
 
@@ -60,7 +63,7 @@ def get_data(year, day, category):
         for document in cursor:
             for cat in categories[:3]:
                 dict_list = [x for x in document[cat] if x['year'] == year]
-                results += build_results(dict_list, year, document['Day'], cat)
+                results += build_results(dict_list, document['Day'], cat)
 
     elif year is not None and category is not None:
         cursor = db.days.find(
@@ -71,7 +74,6 @@ def get_data(year, day, category):
             dict_list = [x for x in document[category] if x['year'] == year]
             results += build_results(
                                         dict_list,
-                                        year,
                                         document['Day'],
                                         category)
     elif year is not None:
@@ -87,7 +89,7 @@ def get_data(year, day, category):
         for document in cursor:
             for cat in categories[:3]:
                 dict_list = [x for x in document[cat] if x['year'] == year]
-                results += build_results(dict_list, year, document['Day'], cat)
+                results += build_results(dict_list, document['Day'], cat)
 
     elif day is not None and category is not None:
         cursor = db.days.find(
@@ -98,7 +100,6 @@ def get_data(year, day, category):
             dict_list = document[category]
             results += build_results(
                                         dict_list,
-                                        year,
                                         document['Day'],
                                         category)
 
@@ -108,7 +109,6 @@ def get_data(year, day, category):
             dict_list = document[category]
             results += build_results(
                                         dict_list,
-                                        year,
                                         document['Day'],
                                         category)
 
@@ -120,7 +120,22 @@ def get_data(year, day, category):
         for document in cursor:
             for cat in categories:
                 dict_list = document[cat]
-                results += build_results(dict_list, year, document['Day'], cat)
+                results += build_results(dict_list, document['Day'], cat)
+
+    elif keyword is not None:
+        cursor = db.days.find(
+                    {
+                        '$text':
+                        {
+                            '$search': keyword,
+                            '$caseSensitive': True,
+                            '$diacriticSensitive': True
+                        }
+                    })
+        for document in cursor:
+            for cat in categories:
+                dict_list = [x for x in document[cat] if keyword in x['title']]
+                results += build_results(dict_list, document['Day'], cat)
 
     return results
 
@@ -131,12 +146,13 @@ def index():
     year = request.args.get('year')
     day = request.args.get('day')
     category = request.args.get('category')
+    keyword = request.args.get('keyword')
     if day is not None:
         day = day.lower().capitalize()
     if category is not None:
         category = category.lower().capitalize()
 
-    resDict = {'results': get_data(year, day, category)}
+    resDict = {'results': get_data(year, day, category, keyword)}
 
     js = json.dumps(
                         resDict,
